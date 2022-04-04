@@ -30,10 +30,14 @@ int rightlimit = servo.read();
 int leftlimit = rightlimit + 60;
 
 //PID constants
-double kp = .0001;
-double ki = .001;
-double kd = .01;
+double kp = .001;
+double ki = .01;
+double kd = 0;
 const double reqdistance = 10;
+
+double kiTotal = 0.0;
+double priorError = 0.0;
+long prevTime = millis();
 
 unsigned long currentTime, previousTime;
 double elapsedTime;
@@ -41,33 +45,91 @@ double error;
 double lastError;
 double currentDistance, pidResult;
 double totalError, rateError;
+double totalDistance;
+double avgDistance;
+int cycle;
+double leftspeed;
+double rightspeed;
 
 
 void setup() {
   pinMode(TRIG, OUTPUT);
   pinMode(ECHO, INPUT);
   Serial.begin(9600);
+  Serial.println("BEGIN!");
+  servo.attach(21);
+  servo.write(90);
+  cycle = 1;
+  leftspeed = -100;
+  rightspeed = -100;
+  motors.setSpeeds(leftspeed, rightspeed);
 }
 
 void loop() {
   digitalWrite(TRIG, HIGH);
   digitalWrite(TRIG, LOW);
-  float currentDistance = (pulseIn(ECHO, HIGH) / 58);
-  double motorspeed = computePID(currentDistance);
-  delay(100);
-  motors.setSpeeds(-motorspeed, -motorspeed);
+  cycle1();
+  digitalWrite(TRIG, HIGH);
+  digitalWrite(TRIG, LOW);
+  cycle2();
 }
+
+
+
+void cycle1(){
+  cycle = 1;
+  totalDistance = 0;
+  int i = 0;
+  servo.write(180);
+  while(i < 1){
+    float currentDistance = (pulseIn(ECHO, HIGH) / 58);
+    totalDistance = totalDistance + currentDistance;
+    i++;
+  }
+  avgDistance = totalDistance;
+  changeSpeed(computePID(avgDistance));
+  
+}
+
+void cycle2(){
+  cycle = 2;
+  totalDistance = 0;
+  int i = 0;
+  servo.write(180);
+  while(i < 1){
+    float currentDistance = (pulseIn(ECHO, HIGH) / 58);
+    totalDistance = totalDistance + currentDistance;
+    i++;
+  }
+  avgDistance = totalDistance;
+  changeSpeed(computePID(avgDistance));
+  
+}
+
+
 
 
 double computePID(double inp){     
         currentTime = millis();                //get current time
         elapsedTime = (double)(currentTime - previousTime);        //compute time elapsed from previous computation
         
-        error = reqdistance - inp;                                // determine error
-        totalError += error * elapsedTime;                // compute integral
-        rateError = (error - lastError)/elapsedTime;   // compute derivative
+        error = reqdistance - inp; // determine error
+        double proportional = kp * error * elapsedTime;
+        kiTotal += error;
+        
+        double integral = ki * kiTotal;                // compute integral
+        if(integral > 200){
+          integral = 200;
+        } else if(integral < -200){
+          integral = -200;
+        }
 
-        double out = kp*error + ki*totalError + kd*rateError;                //PID output               
+        
+        float derivative = kd * (error - priorError);  // compute derivative
+
+        priorError = error;
+
+        double out = proportional + integral + derivative;               //PID output               
 
         Serial.println(out);
         
@@ -75,4 +137,16 @@ double computePID(double inp){
         previousTime = currentTime;                        //remember current time
 
         return out;                                        //have function return the PID output
+}
+
+void changeSpeed(double inp){
+  inp = -inp;
+  Serial.println(inp);
+  float currentDistance = (pulseIn(ECHO, HIGH) / 58);
+  if(currentDistance > reqdistance){
+
+    motors.setSpeeds(leftspeed + inp, rightspeed - inp);
+  } else if(currentDistance < reqdistance){
+    motors.setSpeeds(leftspeed - inp, rightspeed + inp);
+  }
 }
